@@ -16,7 +16,7 @@ ENV_PATH = ROOT / ".env"
 DEFAULT_MODEL = "openrouter:inclusionai/ring-2.6-1t:free"
 
 CONTRACTS_DIR = ROOT / "contracts"
-DB_PATH = ROOT / "ap_ledger.db"
+DB_PATH = ROOT / "consolidated_audit.db"
 DELIVERY_LOG_PATH = ROOT / "warehouse_receipts_fy26.csv"
 LEDGER_SCHEMA_HINT = (
     "Tables: Vendors, Invoices, Payments. Columns: Vendors(Vendor_ID, Vendor_Name, GSTIN, Address), "
@@ -29,6 +29,7 @@ SYSTEM_PROMPT = """
 You are the Senior Financial Auditor for Shree Manufacturing Pvt. Ltd.
 You MUST use write_todos to outline a 3-step audit plan before taking any other action.
 Use query_ledger for accounts payable data, check_delivery_log for warehouse receipts, and read_file for legal contracts.
+Use detect_anomalies to proactively scan for fraud, duplicates, and ghost payments.
 Use the penalty_logic skill when penalty calculation is required. Report any discrepancy greater than INR 0.
 """.strip()
 
@@ -86,6 +87,52 @@ def read_file(vendor_name: str) -> str:
         return read_contract(vendor_name)
     except FileNotFoundError:
         return f"Contract not found for vendor: {vendor_name}. Available contracts are in {CONTRACTS_DIR}"
+
+
+def detect_anomalies() -> str:
+    """Scan for duplicates, ghost receipts, and statistical amount outliers."""
+    db_path = "consolidated_audit.db"
+    if not os.path.exists(db_path):
+        return json.dumps({"error": "Consolidated database not found. Run migration first."})
+
+    anomalies = {}
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+
+        # 1. Duplicate Invoices
+        dupes = conn.execute("""
+            SELECT Vendor_ID, Amount, Invoice_Date, COUNT(*) as count 
+            FROM Invoices 
+            GROUP BY Vendor_ID, Amount, Invoice_Date 
+            HAVING count > 1
+        """).fetchall()
+        anomalies["duplicate_invoices"] = [dict(r) for r in dupes]
+
+        # 2. Ghost Receipts (Payments made to vendors who have 0 receipts)
+        ghosts = conn.execute("""
+            SELECT v.Vendor_Name, v.Vendor_ID, SUM(p.Amount) as total_paid
+            FROM Vendors v
+            JOIN Invoices i ON v.Vendor_ID = i.Vendor_ID
+            JOIN Payments p ON i.Invoice_ID = p.Invoice_ID
+            LEFT JOIN Receipts r ON v.Vendor_ID = r.Vendor_ID
+            WHERE r.Receipt_ID IS NULL
+            GROUP BY v.Vendor_ID
+        """).fetchall()
+        anomalies["ghost_receipts"] = [dict(r) for r in ghosts]
+
+        # 3. High-Value Outliers (> 2x Vendor Average)
+        outliers = conn.execute("""
+            SELECT i.Invoice_ID, i.Vendor_ID, i.Amount, avg_vals.avg_amt
+            FROM Invoices i
+            JOIN (
+                SELECT Vendor_ID, AVG(Amount) as avg_amt 
+                FROM Invoices GROUP BY Vendor_ID
+            ) avg_vals ON i.Vendor_ID = avg_vals.Vendor_ID
+            WHERE i.Amount > (avg_vals.avg_amt * 2)
+        """).fetchall()
+        anomalies["amount_outliers"] = [dict(r) for r in outliers]
+
+    return json.dumps(anomalies, indent=2)
 
 
 def get_vendor_id(vendor_name: str) -> str:
@@ -167,7 +214,7 @@ def build_augmented_prompt(prompt: str) -> str:
 def build_agent(model_name: str):
     return create_deep_agent(
         model=model_name,
-        tools=[query_ledger, check_delivery_log, read_file],
+        tools=[query_ledger, check_delivery_log, read_file, detect_anomalies],
         system_prompt=SYSTEM_PROMPT,
         skills=["./skills/penalty_logic/"],
     )
