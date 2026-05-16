@@ -58,3 +58,14 @@ def test_import_contracts():
         assert row[0] == 0.05
         assert row[1] == 7
     os.remove(db_path)
+
+def test_run_full_migration():
+    from db_migrator import run_full_migration
+    db_path = "consolidated_audit.db"
+    if os.path.exists(db_path): os.remove(db_path)
+    run_full_migration()
+    assert os.path.exists(db_path)
+    with sqlite3.connect(db_path) as conn:
+        for table in ["Vendors", "Invoices", "Payments", "Receipts", "Contracts"]:
+            count = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+            assert count > 0

@@ -1,6 +1,7 @@
 import sqlite3
 import csv
 import re
+import os
 from datetime import datetime
 from pathlib import Path
 
@@ -67,3 +68,15 @@ def import_contracts(contracts_dir, db_path):
             contract_data.append((vendor_id, text, penalty_pct, grace_days))
         
         conn.executemany("INSERT INTO Contracts VALUES (?, ?, ?, ?)", contract_data)
+
+def run_full_migration():
+    db_path = "consolidated_audit.db"
+    if os.path.exists(db_path): os.remove(db_path)
+    create_schema(db_path)
+    migrate_ledger("ap_ledger.db", db_path)
+    import_receipts("warehouse_receipts_fy26.csv", db_path)
+    import_contracts("contracts", db_path)
+    print(f"Migration complete: {db_path}")
+
+if __name__ == "__main__":
+    run_full_migration()
