@@ -1,6 +1,8 @@
 import sqlite3
 import csv
+import re
 from datetime import datetime
+from pathlib import Path
 
 def create_schema(db_path):
     with sqlite3.connect(db_path) as conn:
@@ -38,3 +40,30 @@ def import_receipts(csv_path, db_path):
         conn.executemany(
             "INSERT INTO Receipts VALUES (?, ?, ?, ?, ?, ?)", data
         )
+
+def import_contracts(contracts_dir, db_path):
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        vendors = {row['Vendor_Name']: row['Vendor_ID'] for row in conn.execute("SELECT Vendor_Name, Vendor_ID FROM Vendors").fetchall()}
+        
+        contract_data = []
+        for file_path in Path(contracts_dir).glob("*.txt"):
+            # Normalize filename to vendor name
+            # Filenames look like: Aurora_LLC_Contract.txt
+            vendor_name = file_path.stem.replace("_Contract", "").replace("_", " ")
+            vendor_id = vendors.get(vendor_name)
+            if not vendor_id: continue
+            
+            text = file_path.read_text()
+            penalty_pct = 0.0
+            grace_days = 0
+            
+            pct_match = re.search(r"(\d+)%\s+penalty", text)
+            if pct_match: penalty_pct = float(pct_match.group(1)) / 100.0
+            
+            days_match = re.search(r"exceeding\s+(\d+)\s+days", text)
+            if days_match: grace_days = int(days_match.group(1))
+            
+            contract_data.append((vendor_id, text, penalty_pct, grace_days))
+        
+        conn.executemany("INSERT INTO Contracts VALUES (?, ?, ?, ?)", contract_data)

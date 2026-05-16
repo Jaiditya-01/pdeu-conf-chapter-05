@@ -41,3 +41,20 @@ def test_import_receipts():
         # Verify Days_Late is an integer
         assert isinstance(row[0], int)
     os.remove(db_path)
+
+def test_import_contracts():
+    db_path = "test_audit.db"
+    contracts_dir = "contracts"
+    if os.path.exists(db_path): os.remove(db_path)
+    from db_migrator import create_schema, import_contracts
+    create_schema(db_path)
+    # We need some vendors to link contracts to
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("INSERT INTO Vendors (Vendor_ID, Vendor_Name) VALUES ('VEN-1000', 'Gujarat Steel Corp')")
+    import_contracts(contracts_dir, db_path)
+    with sqlite3.connect(db_path) as conn:
+        row = conn.execute("SELECT Penalty_Percentage, Grace_Period_Days FROM Contracts WHERE Vendor_ID='VEN-1000'").fetchone()
+        assert row is not None
+        assert row[0] == 0.05
+        assert row[1] == 7
+    os.remove(db_path)
