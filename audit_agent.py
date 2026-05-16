@@ -13,7 +13,7 @@ from loguru import logger
 
 ROOT = Path(__file__).resolve().parent
 ENV_PATH = ROOT / ".env"
-DEFAULT_MODEL = "openrouter:inclusionai/ring-2.6-1t:free"
+DEFAULT_MODEL = "openrouter:google/gemini-2.0-flash-exp:free"
 
 CONTRACTS_DIR = ROOT / "contracts"
 DB_PATH = ROOT / "consolidated_audit.db"
@@ -91,12 +91,11 @@ def read_file(vendor_name: str) -> str:
 
 def detect_anomalies() -> str:
     """Scan for duplicates, ghost receipts, and statistical amount outliers."""
-    db_path = "consolidated_audit.db"
-    if not os.path.exists(db_path):
+    if not DB_PATH.exists():
         return json.dumps({"error": "Consolidated database not found. Run migration first."})
 
     anomalies = {}
-    with sqlite3.connect(db_path) as conn:
+    with sqlite3.connect(DB_PATH) as conn:
         conn.row_factory = sqlite3.Row
 
         # 1. Duplicate Invoices
@@ -251,3 +250,8 @@ def main(argv: list[str] | None = None) -> int:
 
     print(invoke_agent(args.prompt))
     return 0
+
+
+if __name__ == "__main__":
+    import sys
+    sys.exit(main())
