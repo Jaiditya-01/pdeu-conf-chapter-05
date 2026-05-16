@@ -27,3 +27,17 @@ def test_migrate_ledger():
         count = conn.execute("SELECT COUNT(*) FROM Vendors").fetchone()[0]
         assert count > 0
     os.remove(db_path)
+
+def test_import_receipts():
+    db_path = "test_audit.db"
+    csv_path = "warehouse_receipts_fy26.csv"
+    if os.path.exists(db_path): os.remove(db_path)
+    from db_migrator import create_schema, import_receipts
+    create_schema(db_path)
+    import_receipts(csv_path, db_path)
+    with sqlite3.connect(db_path) as conn:
+        row = conn.execute("SELECT Days_Late FROM Receipts LIMIT 1").fetchone()
+        assert row is not None
+        # Verify Days_Late is an integer
+        assert isinstance(row[0], int)
+    os.remove(db_path)

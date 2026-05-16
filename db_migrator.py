@@ -1,4 +1,6 @@
 import sqlite3
+import csv
+from datetime import datetime
 
 def create_schema(db_path):
     with sqlite3.connect(db_path) as conn:
@@ -17,3 +19,22 @@ def migrate_ledger(source_path, target_path):
         conn.execute("INSERT INTO Invoices SELECT * FROM source.Invoices")
         conn.execute("INSERT INTO Payments SELECT * FROM source.Payments")
         conn.commit()
+
+def import_receipts(csv_path, db_path):
+    with open(csv_path, 'r') as f:
+        reader = csv.DictReader(f)
+        data = []
+        for row in reader:
+            expected = datetime.strptime(row['Expected_Delivery'], '%Y-%m-%d')
+            actual = datetime.strptime(row['Actual_Delivery'], '%Y-%m-%d')
+            days_late = (actual - expected).days
+            data.append((
+                row['Receipt_ID'], row['Vendor_ID'], 
+                row['Expected_Delivery'], row['Actual_Delivery'], 
+                row['Quality_Status'], days_late
+            ))
+    
+    with sqlite3.connect(db_path) as conn:
+        conn.executemany(
+            "INSERT INTO Receipts VALUES (?, ?, ?, ?, ?, ?)", data
+        )
