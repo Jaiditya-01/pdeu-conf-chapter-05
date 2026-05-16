@@ -15,3 +15,15 @@ def test_create_schema():
         assert "Receipts" in table_names
         assert "Contracts" in table_names
     os.remove(db_path)
+
+def test_migrate_ledger():
+    db_path = "test_audit.db"
+    source_db = "ap_ledger.db"
+    if os.path.exists(db_path): os.remove(db_path)
+    from db_migrator import create_schema, migrate_ledger
+    create_schema(db_path)
+    migrate_ledger(source_db, db_path)
+    with sqlite3.connect(db_path) as conn:
+        count = conn.execute("SELECT COUNT(*) FROM Vendors").fetchone()[0]
+        assert count > 0
+    os.remove(db_path)
